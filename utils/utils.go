@@ -5,10 +5,14 @@ import (
 	"crypto/md5"
 	"encoding/gob"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
+	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/OpenPeeDeeP/xdg"
 	"golang.org/x/oauth2"
@@ -50,6 +54,9 @@ func GetFileMd5(filePath string) (string, error) {
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {
+		return false
+	}
+	if info == nil {
 		return false
 	}
 	return !info.IsDir()
@@ -97,4 +104,27 @@ func StringToInt(str string) (int, error) {
 		return 0, err
 	}
 	return i, nil
+}
+
+func CleanupFilename(name string) string {
+	for _, char := range []string{"\"", "?", "&", "*", "@", "!", "'", ":"} {
+		name = strings.ReplaceAll(name, char, "")
+	}
+	return name
+}
+
+func OpenBrowserURL(url string) error {
+	var err error
+
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("open-browser: unsupported platform")
+	}
+	return err
 }

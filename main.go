@@ -51,7 +51,7 @@ func downloadCallback(c *cli.Context) error {
 	fmt.Printf("Detected File-Id: %s\n", fileId)
 	GD := drive.NewDriveClient()
 	GD.Init()
-	GD.Authorize(c.String("db-path"))
+	GD.Authorize(c.String("db-path"), c.Bool("usesa"), c.Int("port"))
 	GD.SetConcurrency(c.Int("conn"))
 	GD.SetAbusiveFileDownload(c.Bool("acknowledge-abuse"))
 	cus_path, err := db.GetDLDirDb(c.String("db-path"))
@@ -64,6 +64,7 @@ func downloadCallback(c *cli.Context) error {
 	} else {
 		cus_path = c.String("path")
 	}
+	log.SetOutput(GD.Progress)
 	GD.Download(fileId, cus_path, c.String("output"))
 	return nil
 }
@@ -93,6 +94,31 @@ func rmCredsCallback(c *cli.Context) error {
 		fmt.Println("credentials removed from database successfully.")
 	} else {
 		fmt.Println("Database doesnt contain any credentials.")
+	}
+	return nil
+}
+
+func setJWTConfigCallback(c *cli.Context) error {
+	arg := c.Args().Get(0)
+	if arg == "" {
+		return errors.New("Provide a proper service account file path.")
+	}
+	fmt.Printf("Detected service account Path: %s\n", arg)
+	if !db.IsJWTConfigInDb(c.GlobalString("db-path")) {
+		db.AddJWTConfigDb(c.GlobalString("db-path"), arg)
+		fmt.Printf("%s added in database.\n", arg)
+	} else {
+		fmt.Println("A service account already exists in databse, use rmsa command to remove it first.")
+	}
+	return nil
+}
+
+func rmJWTConfigCallback(c *cli.Context) error {
+	if db.IsJWTConfigInDb(c.GlobalString("db-path")) {
+		db.RemoveJWTConfigDb(c.GlobalString("db-path"))
+		fmt.Println("service account removed from database successfully.")
+	} else {
+		fmt.Println("Database doesnt contain any service account.")
 	}
 	return nil
 }
@@ -151,6 +177,15 @@ func main() {
 			Name:  "acknowledge-abuse",
 			Usage: "Enable downloading of files marked as abusive by google drive.",
 		},
+		&cli.BoolFlag{
+			Name:  "usesa",
+			Usage: "Use service accounts instead of OAuth.",
+		},
+		&cli.IntFlag{
+			Name:  "port",
+			Usage: "Port for the OAuth web server.",
+			Value: 8096,
+		},
 	}
 	subCommandFlags := []cli.Flag{
 		&cli.StringFlag{
@@ -179,6 +214,18 @@ func main() {
 			Name:   "rm",
 			Usage:  "remove credentials from database",
 			Action: rmCredsCallback,
+			Flags:  subCommandFlags,
+		},
+		{
+			Name:   "setsa",
+			Usage:  "add service account to database",
+			Action: setJWTConfigCallback,
+			Flags:  subCommandFlags,
+		},
+		{
+			Name:   "rmsa",
+			Usage:  "remove service account from database",
+			Action: rmJWTConfigCallback,
 			Flags:  subCommandFlags,
 		},
 		{
