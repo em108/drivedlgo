@@ -180,7 +180,7 @@ func (G *GoogleDriveClient) GetFilesByParentId(parentId string) []*drive.File {
 	var files []*drive.File
 	pageToken := ""
 	for {
-		request := G.DriveSrv.Files.List().Q("'" + parentId + "' in parents and trashed=false").
+		request := G.DriveSrv.Files.List().Q("'" + parentId + "' in parents and trashed=false").SupportsAllDrives(true).IncludeTeamDriveItems(true).PageSize(1000).
 			Fields("nextPageToken,files(id, name, size, mimeType, md5Checksum)")
 		if pageToken != "" {
 			request = request.PageToken(pageToken)
