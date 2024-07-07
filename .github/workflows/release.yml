@@ -20,39 +20,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: '1.20'
-
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Cache GoReleaser dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/goreleaser
-          key: ${{ runner.os }}-goreleaser-${{ hashFiles('.goreleaser.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-goreleaser-
+          cache: true
 
       - name: Set up Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '11'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: android-actions/setup-android@v3
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
@@ -68,43 +53,54 @@ jobs:
           echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@v5
         with:
           distribution: goreleaser
           version: latest
           args: ${{ github.event_name == 'push' && 'release --clean' || 'build --snapshot' }}
         env:
           GITHUB_TOKEN: ${{ secrets.WF_TOKEN }}
+          SNAPSHOT: ${{ github.event_name != 'push' }}
+
+      - name: Display structure of dist directory
+        run: ls -R dist/
+
+      - name: Upload all artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-builds
+          path: dist/*
+          retention-days: 5
+        if: always()
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: android-builds
           path: dist/*Android*
           retention-days: 5
+        if: always()
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-builds
           path: dist/*Windows*
           retention-days: 5
+        if: always()
 
       - name: Upload Linux artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-builds
           path: dist/*Linux*
           retention-days: 5
+        if: always()
 
       - name: Upload Darwin artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: darwin-builds
           path: dist/*Darwin*
           retention-days: 5
-
-      - name: List artifacts
-        run: |
-          echo "Build artifacts:"
-          ls -R dist/
+        if: always()
