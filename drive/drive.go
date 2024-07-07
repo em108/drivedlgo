@@ -179,81 +179,46 @@ func (G *GoogleDriveClient) getTokenFromWeb(config *oauth2.Config, port int) *oa
 }
 
 func (G *GoogleDriveClient) Authorize(dbPath string, useSA bool, port int) {
-	var client *http.Client
-	if useSA {
-		fmt.Println("Authorizing via service-account")
-		jwtConfigJsonBytes, err := db.GetJWTConfigDb(dbPath)
-		if err != nil {
-			log.Fatalf("Unable to Get SA Credentials from Db, make sure to use setsa command: %v", err)
-		}
-		config, err := google.JWTConfigFromJSON(jwtConfigJsonBytes, drive.DriveScope)
-		if err != nil {
-			log.Fatalf("Unable to parse client secret file to config: %v", err)
-		}
-		client = config.Client(context.Background())
-	} else {
-		fmt.Println("Authorizing via google-account")
-		credsJsonBytes, err := db.GetCredentialsDb(dbPath)
-		if err != nil {
-			log.Fatalf("Unable to Get Credentials from Db, make sure to use set command: %v", err)
-		}
+    var client *http.Client
+    if useSA {
+        fmt.Println("Authorizing via service-account")
+        jwtConfigJsonBytes, err := db.GetJWTConfigDb(dbPath)
+        if err != nil {
+            log.Fatalf("Unable to Get SA Credentials from Db, make sure to use setsa command: %v", err)
+        }
+        config, err := google.JWTConfigFromJSON(jwtConfigJsonBytes, drive.DriveScope)
+        if err != nil {
+            log.Fatalf("Unable to parse client secret file to config: %v", err)
+        }
+        client = config.Client(context.Background())
+    } else {
+        fmt.Println("Authorizing via google-account")
+        credsJsonBytes, err := db.GetCredentialsDb(dbPath)
+        if err != nil {
+            log.Fatalf("Unable to Get Credentials from Db, make sure to use set command: %v", err)
+        }
 
-		config, err := google.ConfigFromJSON(credsJsonBytes, drive.DriveScope)
-		if err != nil {
-			log.Fatalf("Unable to parse client secret file to config: %v", err)
-		}
-		
-		tokBytes, err := db.GetTokenDb(dbPath)
-		var tok *oauth2.Token
-		if err != nil {
-			tok = G.getTokenFromWeb(config, port)
-			db.AddTokenDb(dbPath, utils.OauthTokenToBytes(tok))
-		} else {
-			tok = utils.BytesToOauthToken(tokBytes)
-		}
-		client = config.Client(context.Background(), tok)
-	}
-	
-	srv, err := drive.NewService(context.Background(), option.WithHTTPClient(client))
-	if err != nil {
-		log.Fatalf("Unable to retrieve Drive client: %v", err)
-	}
-	G.DriveSrv = srv
-}
-
-func (G *GoogleDriveClient) Authorize(dbPath string, useSA bool, port int) {
-	var client *http.Client
-	if useSA {
-		fmt.Println("Authorizing via service-account")
-		jwtConfigJsonBytes, err := db.GetJWTConfigDb(dbPath)
-		if err != nil {
-			log.Fatalf("Unable to Get SA Credentials from Db, make sure to use setsa command: %v", err)
-		}
-		// If modifying these scopes, delete your previously saved token.json.
-		config, err := google.JWTConfigFromJSON(jwtConfigJsonBytes, drive.DriveScope)
-		if err != nil {
-			log.Fatalf("Unable to parse client secret file to config: %v", err)
-		}
-		client = config.Client(context.Background())
-	} else {
-		fmt.Println("Authorizing via google-account")
-		credsJsonBytes, err := db.GetCredentialsDb(dbPath)
-		if err != nil {
-			log.Fatalf("Unable to Get Credentials from Db, make sure to use set command: %v", err)
-		}
-
-		// If modifying these scopes, delete your previously saved token.json.
-		config, err := google.ConfigFromJSON(credsJsonBytes, drive.DriveScope)
-		if err != nil {
-			log.Fatalf("Unable to parse client secret file to config: %v", err)
-		}
-		client = G.getClient(dbPath, config, port)
-	}
-	srv, err := drive.NewService(context.Background(), option.WithHTTPClient(client))
-	if err != nil {
-		log.Fatalf("Unable to retrieve Drive client: %v", err)
-	}
-	G.DriveSrv = srv
+        config, err := google.ConfigFromJSON(credsJsonBytes, drive.DriveScope)
+        if err != nil {
+            log.Fatalf("Unable to parse client secret file to config: %v", err)
+        }
+        
+        tokBytes, err := db.GetTokenDb(dbPath)
+        var tok *oauth2.Token
+        if err != nil {
+            tok = G.getTokenFromWeb(config, port)
+            db.AddTokenDb(dbPath, utils.OauthTokenToBytes(tok))
+        } else {
+            tok = utils.BytesToOauthToken(tokBytes)
+        }
+        client = config.Client(context.Background(), tok)
+    }
+    
+    srv, err := drive.NewService(context.Background(), option.WithHTTPClient(client))
+    if err != nil {
+        log.Fatalf("Unable to retrieve Drive client: %v", err)
+    }
+    G.DriveSrv = srv
 }
 
 func (G *GoogleDriveClient) GetFilesByParentId(parentId string) []*drive.File {
