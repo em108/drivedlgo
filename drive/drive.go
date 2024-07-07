@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"sort"
 
 	"github.com/fatih/color"
 	"github.com/vbauerster/mpb/v8"
@@ -39,6 +40,11 @@ type GoogleDriveClient struct {
 	abuse               bool
 	numFilesDownloaded  int
 	channel             chan int
+	sortOrder           string
+}
+
+func (G *GoogleDriveClient) SetSortOrder(order string) {
+	G.sortOrder = order
 }
 
 func (G *GoogleDriveClient) Init() {
@@ -174,8 +180,8 @@ func (G *GoogleDriveClient) GetFilesByParentId(parentId string) []*drive.File {
 	var files []*drive.File
 	pageToken := ""
 	for {
-		request := G.DriveSrv.Files.List().Q("'" + parentId + "' in parents and trashed=false").OrderBy("name,folder").SupportsAllDrives(true).IncludeTeamDriveItems(true).PageSize(1000).
-			Fields("nextPageToken,files(id, name,size, mimeType,md5Checksum)")
+		request := G.DriveSrv.Files.List().Q("'" + parentId + "' in parents and trashed=false").
+			Fields("nextPageToken,files(id, name, size, mimeType, md5Checksum)")
 		if pageToken != "" {
 			request = request.PageToken(pageToken)
 		}
@@ -190,7 +196,57 @@ func (G *GoogleDriveClient) GetFilesByParentId(parentId string) []*drive.File {
 			break
 		}
 	}
+
+	// Sort files based on the specified order
+	G.sortFiles(files)
+
 	return files
+}
+
+func (G *GoogleDriveClient) sortFiles(files []*drive.File) {
+	// First, separate folders and non-folders
+	var folders, nonFolders []*drive.File
+	for _, file := range files {
+		if file.MimeType == G.GDRIVE_DIR_MIMETYPE {
+			folders = append(folders, file)
+		} else {
+			nonFolders = append(nonFolders, file)
+		}
+	}
+
+	// Define a common sorting function
+	sortFunc := func(slice []*drive.File) {
+		switch G.sortOrder {
+		case "name_asc":
+			sort.Slice(slice, func(i, j int) bool {
+				return slice[i].Name < slice[j].Name
+			})
+		case "name_desc":
+			sort.Slice(slice, func(i, j int) bool {
+				return slice[i].Name > slice[j].Name
+			})
+		case "size_asc":
+			sort.Slice(slice, func(i, j int) bool {
+				return slice[i].Size < slice[j].Size
+			})
+		case "size_desc":
+			sort.Slice(slice, func(i, j int) bool {
+				return slice[i].Size > slice[j].Size
+			})
+		default:
+			// Default to name_asc if an invalid sort order is provided
+			sort.Slice(slice, func(i, j int) bool {
+				return slice[i].Name < slice[j].Name
+			})
+		}
+	}
+
+	// Sort folders and non-folders separately
+	sortFunc(folders)
+	sortFunc(nonFolders)
+
+	// Combine folders and non-folders, with folders first
+	copy(files, append(folders, nonFolders...))
 }
 
 func (G *GoogleDriveClient) GetFileMetadata(fileId string) *drive.File {
