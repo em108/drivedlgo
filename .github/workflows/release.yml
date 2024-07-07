@@ -36,29 +36,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Cache Android SDK
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.android/sdk
-          key: ${{ runner.os }}-android-sdk-${{ hashFiles('**/build.gradle*') }}
-          restore-keys: |
-            ${{ runner.os }}-android-sdk-
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
-
-      - name: Cache Android NDK
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.android/ndk
-          key: ${{ runner.os }}-android-ndk-${{ hashFiles('**/build.gradle*') }}
-          restore-keys: |
-            ${{ runner.os }}-android-ndk-
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
