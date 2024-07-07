@@ -15,21 +15,22 @@ builds:
       - windows
       - darwin
     goarch:
-      - 386
-      - amd64
-      - arm64
+      - "386"
+      - "amd64"
+      - "arm64"
+    ignore:
+      - goos: windows
+        goarch: "arm64"
   - id: android
     ldflags: -s -w
     env:
       - CGO_ENABLED=1
-      - CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
-      - CXX=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+      - CC={{ .Env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+      - CXX={{ .Env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
     goos:
       - android
     goarch:
-      - arm64
-    gomips:
-      - hardfloat
+      - "arm64"
 archives:
   - id: default
     builds: [default]
