@@ -17,36 +17,6 @@ import (
 
 const DRIVE_LINK_REGEX string = `https://drive\.google\.com/(drive)?/?u?/?\d?/?(mobile)?/?(file)?(folders)?/?d?/([-\w]+)[?+]?/?(w+)?`
 
-func downloadCallback(c *cli.Context) error {
-	arg := c.Args().Get(0)
-	if arg == "" {
-		return errors.New(fmt.Sprintf("Required argument <fileid/link> is missing. \nUsage: %s\nFor more info: %s --help ", c.App.UsageText, os.Args[0]))
-	}
-	fileId := getFileIdByLink(arg)
-	if fileId == "" {
-		fileId = arg
-	}
-	fmt.Printf("Detected File-Id: %s\n", fileId)
-	GD := drive.NewDriveClient()
-	GD.Init()
-	GD.Authorize(c.String("db-path"), c.Bool("usesa"), c.Int("port"))
-	GD.SetConcurrency(c.Int("conn"))
-	GD.SetAbusiveFileDownload(c.Bool("acknowledge-abuse"))
-	GD.SetSortOrder(c.String("sort"))  // New line to set sort order
-	cus_path, err := db.GetDLDirDb(c.String("db-path"))
-	if err == nil {
-		if c.String("path") == "." {
-			path.Join(cus_path, c.String("path"))
-		} else {
-			cus_path = c.String("path")
-		}
-	} else {
-		cus_path = c.String("path")
-	}
-	log.SetOutput(GD.Progress)
-	GD.Download(fileId, cus_path, c.String("output"))
-	return nil
-}
 
 func getFileIdByLink(link string) string {
 	match := regexp.MustCompile(DRIVE_LINK_REGEX)
@@ -85,6 +55,7 @@ func downloadCallback(c *cli.Context) error {
 	GD.Authorize(c.String("db-path"), c.Bool("usesa"), c.Int("port"))
 	GD.SetConcurrency(c.Int("conn"))
 	GD.SetAbusiveFileDownload(c.Bool("acknowledge-abuse"))
+	GD.SetSortOrder(c.String("sort"))  // Set sort order
 	cus_path, err := db.GetDLDirDb(c.String("db-path"))
 	if err == nil {
 		if c.String("path") == "." {
