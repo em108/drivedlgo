@@ -47,12 +47,16 @@ archives:
         format: zip
     files:
       - none*
+    compression: zip
+    compression_level: 9
   - id: android
     builds: [android]
     name_template: "{{ .ProjectName }}_Android_{{ .Arch }}"
     format: zip
     files:
       - none*
+    compression: zip
+    compression_level: 9
 checksum:
   name_template: "checksums.txt"
 changelog:
