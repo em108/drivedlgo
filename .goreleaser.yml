@@ -32,6 +32,7 @@ builds:
       - hardfloat
 archives:
   - id: default
+    builds: [default]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -46,10 +47,8 @@ archives:
     files:
       - none*
   - id: android
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- .Arch }}
+    builds: [android]
+    name_template: "{{ .ProjectName }}_Android_{{ .Arch }}"
     format: tar.gz
     files:
       - none*
