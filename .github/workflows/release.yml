@@ -80,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-builds
-          path: dist/*Android*
+          path: dist/android_android_arm64/*
           retention-days: 5
         if: always()
 
@@ -88,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-builds
-          path: dist/*Windows*
+          path: dist/default_windows_amd64_v1/*
           retention-days: 5
         if: always()
 
@@ -96,7 +96,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-builds
-          path: dist/*Linux*
+          path: |
+            dist/default_linux_amd64_v1/*
+            dist/default_linux_arm64/*
           retention-days: 5
         if: always()
 
@@ -104,6 +106,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: darwin-builds
-          path: dist/*Darwin*
+          path: |
+            dist/default_darwin_amd64_v1/*
+            dist/default_darwin_arm64/*
           retention-days: 5
         if: always()
