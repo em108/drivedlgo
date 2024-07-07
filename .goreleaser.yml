@@ -41,20 +41,18 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format: tar.gz
+    format: zip
     format_overrides:
       - goos: windows
         format: zip
     files:
       - none*
-    compression: zip
   - id: android
     builds: [android]
     name_template: "{{ .ProjectName }}_Android_{{ .Arch }}"
     format: zip
     files:
       - none*
-    compression: zip
 checksum:
   name_template: "checksums.txt"
 changelog:
