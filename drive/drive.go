@@ -119,63 +119,63 @@ func (G *GoogleDriveClient) getTokenFromHTTP(port int) (string, error) {
 }
 
 func (G *GoogleDriveClient) getTokenFromWeb(config *oauth2.Config, port int) *oauth2.Token {
-	// Generate random state
-	b := make([]byte, 32)
-	rand.Read(b)
-	state := base64.StdEncoding.EncodeToString(b)
+    // Generate random state
+    b := make([]byte, 32)
+    rand.Read(b)
+    state := base64.StdEncoding.EncodeToString(b)
 
-	// Generate code verifier
-	b = make([]byte, 32)
-	rand.Read(b)
-	codeVerifier := base64.URLEncoding.EncodeToString(b)
+    // Generate code verifier
+    b = make([]byte, 32)
+    rand.Read(b)
+    codeVerifier := base64.URLEncoding.EncodeToString(b)
 
-	// Generate code challenge
-	codeChallenge := utils.GenerateCodeChallenge(codeVerifier)
+    // Generate code challenge
+    codeChallenge := utils.GenerateCodeChallenge(codeVerifier)
 
-	config.RedirectURL = fmt.Sprintf("http://localhost:%d", port)
-	authURL := config.AuthCodeURL(state, 
-		oauth2.AccessTypeOffline, 
-		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
-		oauth2.SetAuthURLParam("code_challenge_method", "S256"))
+    config.RedirectURL = fmt.Sprintf("http://localhost:%d", port)
+    authURL := config.AuthCodeURL(state,
+        oauth2.AccessTypeOffline,
+        oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+        oauth2.SetAuthURLParam("code_challenge_method", "S256"))
 
-	fmt.Printf("Go to the following link in your browser: \n%v\n", authURL)
-	err := utils.OpenBrowserURL(authURL)
-	if err != nil {
-		log.Printf("unable to open browser, you have to manually visit the provided link: %v\n", err)
-	}
+    fmt.Printf("Go to the following link in your browser: \n%v\n", authURL)
+    err := utils.OpenBrowserURL(authURL)
+    if err != nil {
+        log.Printf("unable to open browser, you have to manually visit the provided link: %v\n", err)
+    }
 
-	// Start local server to receive the code
-	var authCode string
-	server := &http.Server{Addr: fmt.Sprintf(":%d", port)}
+    // Start local server to receive the code
+    var authCode string
+    server := &http.Server{Addr: fmt.Sprintf(":%d", port)}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		if r.URL.Query().Get("state") != state {
-			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
-			return
-		}
-		authCode = r.URL.Query().Get("code")
-		if authCode == "" {
-			http.Error(w, "Code not found", http.StatusBadRequest)
-			return
-		}
-		fmt.Fprintf(w, "Authorization successful. You can close this window now.")
-		server.Shutdown(context.Background())
-	})
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        if r.URL.Path != "/" {
+            http.NotFound(w, r)
+            return
+        }
+        if r.URL.Query().Get("state") != state {
+            http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+            return
+        }
+        authCode = r.URL.Query().Get("code")
+        if authCode == "" {
+            http.Error(w, "Code not found", http.StatusBadRequest)
+            return
+        }
+        fmt.Fprintf(w, "Authorization successful. You can close this window now.")
+        server.Shutdown(context.Background())
+    })
 
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("HTTP server ListenAndServe: %v", err)
-	}
+    if err := server.ListenAndServe(); err != http.ErrServerClosed {
+        log.Fatalf("HTTP server ListenAndServe: %v", err)
+    }
 
-	tok, err := config.Exchange(context.TODO(), authCode,
-		oauth2.SetAuthURLParam("code_verifier", codeVerifier))
-	if err != nil {
-		log.Fatalf("Unable to retrieve token from web: %v", err)
-	}
-	return tok
+    tok, err := config.Exchange(context.TODO(), authCode,
+        oauth2.SetAuthURLParam("code_verifier", codeVerifier))
+    if err != nil {
+        log.Fatalf("Unable to retrieve token from web: %v", err)
+    }
+    return tok
 }
 
 func (G *GoogleDriveClient) Authorize(dbPath string, useSA bool, port int) {
