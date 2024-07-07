@@ -1,9 +1,10 @@
 package drive
 
 import (
-	"drivedlgo/customdec"
-	"drivedlgo/db"
-	"drivedlgo/utils"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,11 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"drivedlgo/customdec"
+	"drivedlgo/db"
+	"drivedlgo/utils"
+
 	"github.com/fatih/color"
 	"github.com/vbauerster/mpb/v8"
-
 	"github.com/vbauerster/mpb/v8/decor"
-	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -117,22 +120,106 @@ func (G *GoogleDriveClient) getTokenFromHTTP(port int) (string, error) {
 }
 
 func (G *GoogleDriveClient) getTokenFromWeb(config *oauth2.Config, port int) *oauth2.Token {
+	// Generate random state
+	b := make([]byte, 32)
+	rand.Read(b)
+	state := base64.StdEncoding.EncodeToString(b)
+
+	// Generate code verifier
+	b = make([]byte, 32)
+	rand.Read(b)
+	codeVerifier := base64.URLEncoding.EncodeToString(b)
+
+	// Generate code challenge
+	codeChallenge := utils.GenerateCodeChallenge(codeVerifier)
+
 	config.RedirectURL = fmt.Sprintf("http://localhost:%d", port)
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+	authURL := config.AuthCodeURL(state, 
+		oauth2.AccessTypeOffline, 
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"))
+
 	fmt.Printf("Go to the following link in your browser: \n%v\n", authURL)
 	err := utils.OpenBrowserURL(authURL)
 	if err != nil {
 		log.Printf("unable to open browser, you have to manually visit the provided link: %v\n", err)
 	}
-	authCode, err := G.getTokenFromHTTP(port)
-	if err != nil && err != http.ErrServerClosed {
-		log.Fatalf("unable to get token from oauth web: %v\n", err)
+
+	// Start local server to receive the code
+	var authCode string
+	server := &http.Server{Addr: fmt.Sprintf(":%d", port)}
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("state") != state {
+			http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+			return
+		}
+		authCode = r.URL.Query().Get("code")
+		if authCode == "" {
+			http.Error(w, "Code not found", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprintf(w, "Authorization successful. You can close this window now.")
+		server.Shutdown(context.Background())
+	})
+
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("HTTP server ListenAndServe: %v", err)
 	}
-	tok, err := config.Exchange(context.TODO(), authCode)
+
+	tok, err := config.Exchange(context.TODO(), authCode,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier))
 	if err != nil {
-		log.Fatalf("Unable to retrieve token from web %v", err)
+		log.Fatalf("Unable to retrieve token from web: %v", err)
 	}
 	return tok
+}
+
+func (G *GoogleDriveClient) Authorize(dbPath string, useSA bool, port int) {
+	var client *http.Client
+	if useSA {
+		fmt.Println("Authorizing via service-account")
+		jwtConfigJsonBytes, err := db.GetJWTConfigDb(dbPath)
+		if err != nil {
+			log.Fatalf("Unable to Get SA Credentials from Db, make sure to use setsa command: %v", err)
+		}
+		config, err := google.JWTConfigFromJSON(jwtConfigJsonBytes, drive.DriveScope)
+		if err != nil {
+			log.Fatalf("Unable to parse client secret file to config: %v", err)
+		}
+		client = config.Client(context.Background())
+	} else {
+		fmt.Println("Authorizing via google-account")
+		credsJsonBytes, err := db.GetCredentialsDb(dbPath)
+		if err != nil {
+			log.Fatalf("Unable to Get Credentials from Db, make sure to use set command: %v", err)
+		}
+
+		config, err := google.ConfigFromJSON(credsJsonBytes, drive.DriveScope)
+		if err != nil {
+			log.Fatalf("Unable to parse client secret file to config: %v", err)
+		}
+		
+		tokBytes, err := db.GetTokenDb(dbPath)
+		var tok *oauth2.Token
+		if err != nil {
+			tok = G.getTokenFromWeb(config, port)
+			db.AddTokenDb(dbPath, utils.OauthTokenToBytes(tok))
+		} else {
+			tok = utils.BytesToOauthToken(tokBytes)
+		}
+		client = config.Client(context.Background(), tok)
+	}
+	
+	srv, err := drive.NewService(context.Background(), option.WithHTTPClient(client))
+	if err != nil {
+		log.Fatalf("Unable to retrieve Drive client: %v", err)
+	}
+	G.DriveSrv = srv
 }
 
 func (G *GoogleDriveClient) Authorize(dbPath string, useSA bool, port int) {
