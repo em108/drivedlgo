@@ -1,21 +1,23 @@
 package utils
 
 import (
-	"bytes"
-	"crypto/md5"
-	"encoding/gob"
-	"encoding/hex"
-	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path"
-	"runtime"
-	"strconv"
-	"strings"
+    "bytes"
+    "crypto/md5"
+    "crypto/sha256"
+    "encoding/base64"
+    "encoding/gob"
+    "encoding/hex"
+    "fmt"
+    "io"
+    "os"
+    "os/exec"
+    "path"
+    "runtime"
+    "strconv"
+    "strings"
 
-	"github.com/OpenPeeDeeP/xdg"
-	"golang.org/x/oauth2"
+    "github.com/OpenPeeDeeP/xdg"
+    "golang.org/x/oauth2"
 )
 
 const (
@@ -111,6 +113,11 @@ func CleanupFilename(name string) string {
 		name = strings.ReplaceAll(name, char, "")
 	}
 	return name
+}
+
+func GenerateCodeChallenge(codeVerifier string) string {
+    hash := sha256.Sum256([]byte(codeVerifier))
+    return base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
 func OpenBrowserURL(url string) error {
