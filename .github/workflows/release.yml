@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'snapshot'
+        type: choice
+        options:
+          - snapshot
+          - release
 
 jobs:
   goreleaser:
@@ -62,6 +72,18 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: ${{ github.event_name == 'push' && 'release --clean' || 'build --snapshot' }}
         env:
           GITHUB_TOKEN: ${{ secrets.WF_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ github.event_name == 'push' && 'release' || 'snapshot' }}-builds
+          path: dist/*
+          retention-days: 5
+
+      - name: List artifacts
+        run: |
+          echo "Build artifacts:"
+          ls -R dist/
