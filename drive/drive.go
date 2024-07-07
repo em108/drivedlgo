@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 	"sort"
+	"regexp"
 
 	"github.com/fatih/color"
 	"github.com/vbauerster/mpb/v8"
@@ -41,10 +42,37 @@ type GoogleDriveClient struct {
 	numFilesDownloaded  int
 	channel             chan int
 	sortOrder           string
+	fileFilter          string
+
 }
 
 func (G *GoogleDriveClient) SetSortOrder(order string) {
 	G.sortOrder = order
+}
+
+func (G *GoogleDriveClient) SetFileFilter(filter string) {
+	G.fileFilter = filter
+	fmt.Printf("File filter set to: %s\n", filter)
+}
+
+func (G *GoogleDriveClient) matchesFilter(fileName string) bool {
+	if G.fileFilter == "" {
+		return true
+	}
+
+	// Check if it's a file extension filter
+	if strings.HasPrefix(G.fileFilter, ".") {
+		return strings.HasSuffix(strings.ToLower(fileName), strings.ToLower(G.fileFilter))
+	}
+
+	// Try as a regular expression
+	match, err := regexp.MatchString(G.fileFilter, fileName)
+	if err == nil {
+		return match
+	}
+
+	// If not a valid regex, treat as a substring
+	return strings.Contains(strings.ToLower(fileName), strings.ToLower(G.fileFilter))
 }
 
 func (G *GoogleDriveClient) Init() {
@@ -278,7 +306,7 @@ func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath
 		} else {
 			G.TraverseNodes(file.Id, absPath)
 		}
-	} else {
+	} else if G.matchesFilter(file.Name) {
 		err := os.MkdirAll(localPath, 0755)
 		if err != nil {
 			fmt.Println("Error while creating directory: ", err.Error())
@@ -287,6 +315,8 @@ func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath
 		G.channel <- 1
 		wg.Add(1)
 		go G.HandleDownloadFile(file, absPath)
+	} else {
+		fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
 	}
 	wg.Wait()
 	G.Progress.Wait()
@@ -304,10 +334,12 @@ func (G *GoogleDriveClient) TraverseNodes(nodeId string, localPath string) {
 				continue
 			}
 			G.TraverseNodes(file.Id, absPath)
-		} else {
+		} else if G.matchesFilter(file.Name) {
 			G.channel <- 1
 			wg.Add(1)
 			go G.HandleDownloadFile(file, absPath)
+		} else {
+			fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
 		}
 	}
 }

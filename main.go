@@ -55,7 +55,8 @@ func downloadCallback(c *cli.Context) error {
 	GD.Authorize(c.String("db-path"), c.Bool("usesa"), c.Int("port"))
 	GD.SetConcurrency(c.Int("conn"))
 	GD.SetAbusiveFileDownload(c.Bool("acknowledge-abuse"))
-	GD.SetSortOrder(c.String("sort"))  // Set sort order
+	GD.SetSortOrder(c.String("sort"))
+	GD.SetFileFilter(c.String("filter"))
 	cus_path, err := db.GetDLDirDb(c.String("db-path"))
 	if err == nil {
 		if c.String("path") == "." {
@@ -192,6 +193,10 @@ func main() {
 			Name:  "sort",
 			Usage: "Sort files before downloading: 'name_asc', 'name_desc', 'size_asc', 'size_desc'",
 			Value: "name_asc",
+		},
+		&cli.StringFlag{
+			Name:  "filter",
+			Usage: "Filter files to download (e.g., 's01', 'e01', '.mp4')",
 		},
 	}
 	subCommandFlags := []cli.Flag{
