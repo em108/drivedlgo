@@ -50,7 +50,7 @@ archives:
   - id: android
     builds: [android]
     name_template: "{{ .ProjectName }}_Android_{{ .Arch }}"
-    format: tar.gz
+    format: zip
     files:
       - none*
 checksum:
