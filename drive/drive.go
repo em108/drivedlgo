@@ -356,7 +356,19 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 		return
 	}
 	if exists {
-		fmt.Printf("%s already downloaded.\n", file.Name)
+		// Verify the file size of the existing file
+		fileInfo, err := os.Stat(absPath)
+		if err != nil {
+			log.Printf("[FileStatError]: %v\n", err)
+			G.restartDownload(file, absPath)
+			return
+		}
+		if fileInfo.Size() != file.Size {
+			log.Printf("Existing file size mismatch for %s. Expected: %d, Got: %d. Restarting download.\n", file.Name, file.Size, fileInfo.Size())
+			G.restartDownload(file, absPath)
+			return
+		}
+		fmt.Printf("%s already downloaded and verified.\n", file.Name)
 		return
 	}
 	if bytesDled != 0 {
@@ -364,6 +376,12 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 		fmt.Printf("%s", color.GreenString(o))
 	}
 	G.DownloadFile(file, absPath, bytesDled, 1)
+}
+
+func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string) {
+	log.Printf("Restarting download for %s\n", file.Name)
+	os.Remove(absPath)
+	G.DownloadFile(file, absPath, 0, 1)
 }
 
 func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
