@@ -383,6 +383,12 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 			time.Sleep(5 * time.Second)
 			return G.DownloadFile(file, localPath, startByteIndex, retry+1)
 		}
+		if strings.Contains(err.Error(), "416: Request range not satisfiable") {
+			log.Printf("Received 416 error. Deleting partial file and restarting download from scratch.\n")
+			writer.Close()
+			os.Remove(localPath)
+			return G.DownloadFile(file, localPath, 0, retry+1)
+		}
 		log.Printf("[API-files:get]: (%s) %v\n", file.Id, err)
 		return false
 	}
