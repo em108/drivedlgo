@@ -438,7 +438,6 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 			log.Printf("Error while copying stream, %v\n", err)
 		}
 	} else {
-		// Check if the total bytes written match the expected file size
 		totalBytesWritten := startByteIndex + bytesWritten
 		if totalBytesWritten != file.Size {
 			log.Printf("Mismatch in downloaded file size. Expected: %d, Got: %d. Restarting download from scratch.\n", file.Size, totalBytesWritten)
@@ -446,6 +445,19 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 			os.Remove(localPath)
 			return G.DownloadFile(file, localPath, 0, retry+1)
 		}
+
+		// Verify final MD5 checksum
+		downloadedMD5, err := utils.GetFileMd5(localPath)
+		if err != nil {
+			log.Printf("[MD5VerificationError]: %v\n", err)
+			return false
+		}
+		if downloadedMD5 != file.Md5Checksum {
+			log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
+			os.Remove(localPath)
+			return G.DownloadFile(file, localPath, 0, retry+1)
+		}
+
 		G.numFilesDownloaded += 1
 	}
 	return true
