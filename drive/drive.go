@@ -368,11 +368,12 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 
 func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
 	writer, err := os.OpenFile(localPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	defer writer.Close()
 	if err != nil {
 		log.Printf("[FileOpenError]: %v\n", err)
 		return false
 	}
+	defer writer.Close()
+
 	writer.Seek(startByteIndex, 0)
 	request := G.DriveSrv.Files.Get(file.Id).AcknowledgeAbuse(G.abuse).SupportsAllDrives(true)
 	request.Header().Add("Range", fmt.Sprintf("bytes=%d-%d", startByteIndex, file.Size))
@@ -404,7 +405,7 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 	bar := G.GetProgressBar(file.Name, file.Size-startByteIndex)
 	proxyReader := bar.ProxyReader(response.Body)
 	defer proxyReader.Close()
-	_, err = io.Copy(writer, proxyReader)
+	bytesWritten, err := io.Copy(writer, proxyReader)
 	if err != nil {
 		pos, posErr := writer.Seek(0, io.SeekCurrent)
 		if posErr != nil {
@@ -419,6 +420,14 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 			log.Printf("Error while copying stream, %v\n", err)
 		}
 	} else {
+		// Check if the total bytes written match the expected file size
+		totalBytesWritten := startByteIndex + bytesWritten
+		if totalBytesWritten != file.Size {
+			log.Printf("Mismatch in downloaded file size. Expected: %d, Got: %d. Restarting download from scratch.\n", file.Size, totalBytesWritten)
+			writer.Close()
+			os.Remove(localPath)
+			return G.DownloadFile(file, localPath, 0, retry+1)
+		}
 		G.numFilesDownloaded += 1
 	}
 	return true
