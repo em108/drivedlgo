@@ -368,6 +368,18 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 			G.restartDownload(file, absPath)
 			return
 		}
+		// Verify MD5 checksum for completely downloaded files
+		downloadedMD5, err := utils.GetFileMd5(absPath)
+		if err != nil {
+			log.Printf("[MD5VerificationError]: %v\n", err)
+			G.restartDownload(file, absPath)
+			return
+		}
+		if downloadedMD5 != file.Md5Checksum {
+			log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
+			G.restartDownload(file, absPath)
+			return
+		}
 		fmt.Printf("%s already downloaded and verified.\n", file.Name)
 		return
 	}
@@ -375,13 +387,42 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 		o := fmt.Sprintf("Resuming %s at offset %d\n", file.Name, bytesDled)
 		fmt.Printf("%s", color.GreenString(o))
 	}
-	G.DownloadFile(file, absPath, bytesDled, 1)
+	success := G.DownloadFile(file, absPath, bytesDled, 1)
+	if success {
+		// Verify MD5 checksum after successful download
+		downloadedMD5, err := utils.GetFileMd5(absPath)
+		if err != nil {
+			log.Printf("[MD5VerificationError]: %v\n", err)
+			G.restartDownload(file, absPath)
+			return
+		}
+		if downloadedMD5 != file.Md5Checksum {
+			log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
+			G.restartDownload(file, absPath)
+			return
+		}
+		fmt.Printf("%s downloaded and verified.\n", file.Name)
+	}
 }
 
 func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string) {
 	log.Printf("Restarting download for %s\n", file.Name)
 	os.Remove(absPath)
-	G.DownloadFile(file, absPath, 0, 1)
+	success := G.DownloadFile(file, absPath, 0, 1)
+	if success {
+		// Verify MD5 checksum after restart
+		downloadedMD5, err := utils.GetFileMd5(absPath)
+		if err != nil {
+			log.Printf("[MD5VerificationError]: %v\n", err)
+			return
+		}
+		if downloadedMD5 != file.Md5Checksum {
+			log.Printf("MD5 checksum mismatch after restart for %s. Expected: %s, Got: %s.\n", file.Name, file.Md5Checksum, downloadedMD5)
+			os.Remove(absPath)
+			return
+		}
+		fmt.Printf("%s downloaded, restarted, and verified.\n", file.Name)
+	}
 }
 
 func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
