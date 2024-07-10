@@ -392,6 +392,15 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 		log.Printf("[API-files:get]: (%s) %v\n", file.Id, err)
 		return false
 	}
+
+	contentLength := response.ContentLength
+	if contentLength < 0 || contentLength != file.Size-startByteIndex {
+		log.Printf("Inconsistent file size detected. Restarting download from scratch.\n")
+		writer.Close()
+		os.Remove(localPath)
+		return G.DownloadFile(file, localPath, 0, retry+1)
+	}
+
 	bar := G.GetProgressBar(file.Name, file.Size-startByteIndex)
 	proxyReader := bar.ProxyReader(response.Body)
 	defer proxyReader.Close()
