@@ -46,44 +46,6 @@ type GoogleDriveClient struct {
 
 }
 
-type SizeInfo struct {
-    TotalSize      int64
-    RemainingSize  int64
-    CompletedFiles int
-    TotalFiles     int
-}
-
-func (G *GoogleDriveClient) calculateTotalSize(nodeId string, localPath string) (int64, int64) {
-    var totalSize, remainingSize int64
-    files := G.GetFilesByParentId(nodeId)
-    for _, file := range files {
-        if file.MimeType == G.GDRIVE_DIR_MIMETYPE {
-            subTotalSize, subRemainingSize := G.calculateTotalSize(file.Id, path.Join(localPath, utils.CleanupFilename(file.Name)))
-            totalSize += subTotalSize
-            remainingSize += subRemainingSize
-        } else if G.matchesFilter(file.Name) {
-            totalSize += file.Size
-            filePath := path.Join(localPath, utils.CleanupFilename(file.Name))
-            _, bytesDled, _ := utils.CheckLocalFile(filePath, file.Md5Checksum)
-            remainingSize += file.Size - bytesDled
-        }
-    }
-    return totalSize, remainingSize
-}
-
-func (G *GoogleDriveClient) formatSize(sizeInBytes int64) string {
-    const unit = 1024
-    if sizeInBytes < unit {
-        return fmt.Sprintf("%d B", sizeInBytes)
-    }
-    div, exp := int64(unit), 0
-    for n := sizeInBytes / unit; n >= unit; n /= unit {
-        div *= unit
-        exp++
-    }
-    return fmt.Sprintf("%.1f %cB", float64(sizeInBytes)/float64(div), "KMGTPE"[exp])
-}
-
 func (G *GoogleDriveClient) SetSortOrder(order string) {
 	G.sortOrder = order
 }
@@ -325,55 +287,40 @@ func (G *GoogleDriveClient) GetFileMetadata(fileId string) *drive.File {
 }
 
 func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath string) {
-    startTime := time.Now()
-    file := G.GetFileMetadata(nodeId)
-    if outputPath == "" {
-        outputPath = utils.CleanupFilename(file.Name)
-    }
-    absPath := path.Join(localPath, outputPath)
-
-    // Calculate size information
-    totalSize, remainingSize := G.calculateTotalSize(nodeId, absPath)
-    formattedTotalSize := G.formatSize(totalSize)
-    formattedRemainingSize := G.formatSize(remainingSize)
-
-    fmt.Printf("%s(%s): %s -> %s/%s\n",
-        color.HiBlueString("Download"),
-        color.GreenString(file.MimeType),
-        color.HiGreenString(file.Id),
-        color.HiYellowString(localPath),
-        color.HiYellowString(outputPath))
-    fmt.Printf("Total Size: %s, Remaining: %s\n",
-        color.CyanString(formattedTotalSize),
-        color.MagentaString(formattedRemainingSize))
-
-    if file.MimeType == G.GDRIVE_DIR_MIMETYPE {
-        err := os.MkdirAll(absPath, 0755)
-        if err != nil {
-            fmt.Println("Error while creating directory: ", err.Error())
-            return
-        }
-        files := G.GetFilesByParentId(file.Id)
-        if len(files) == 0 {
-            fmt.Println("google drive folder is empty.")
-        } else {
-            G.TraverseNodes(file.Id, absPath)
-        }
-    } else if G.matchesFilter(file.Name) {
-        err := os.MkdirAll(localPath, 0755)
-        if err != nil {
-            fmt.Println("Error while creating directory: ", err.Error())
-            return
-        }
-        G.channel <- 1
-        wg.Add(1)
-        go G.HandleDownloadFile(file, absPath)
-    } else {
-        fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
-    }
-    wg.Wait()
-    G.Progress.Wait()
-    fmt.Printf("%s", color.GreenString(fmt.Sprintf("Downloaded %d files in %s.\n", G.numFilesDownloaded, time.Now().Sub(startTime))))
+	startTime := time.Now()
+	file := G.GetFileMetadata(nodeId)
+	if outputPath == "" {
+		outputPath = utils.CleanupFilename(file.Name)
+	}
+	fmt.Printf("%s(%s): %s -> %s/%s\n", color.HiBlueString("Download"), color.GreenString(file.MimeType), color.HiGreenString(file.Id), color.HiYellowString(localPath), color.HiYellowString(outputPath))
+	absPath := path.Join(localPath, outputPath)
+	if file.MimeType == G.GDRIVE_DIR_MIMETYPE {
+		err := os.MkdirAll(absPath, 0755)
+		if err != nil {
+			fmt.Println("Error while creating directory: ", err.Error())
+			return
+		}
+		files := G.GetFilesByParentId(file.Id)
+		if len(files) == 0 {
+			fmt.Println("google drive folder is empty.")
+		} else {
+			G.TraverseNodes(file.Id, absPath)
+		}
+	} else if G.matchesFilter(file.Name) {
+		err := os.MkdirAll(localPath, 0755)
+		if err != nil {
+			fmt.Println("Error while creating directory: ", err.Error())
+			return
+		}
+		G.channel <- 1
+		wg.Add(1)
+		go G.HandleDownloadFile(file, absPath)
+	} else {
+		fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
+	}
+	wg.Wait()
+	G.Progress.Wait()
+	fmt.Printf("%s", color.GreenString(fmt.Sprintf("Downloaded %d files in %s.\n", G.numFilesDownloaded, time.Now().Sub(startTime))))
 }
 
 func (G *GoogleDriveClient) TraverseNodes(nodeId string, localPath string) {
