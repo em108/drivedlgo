@@ -57,6 +57,7 @@ func downloadCallback(c *cli.Context) error {
 	GD.SetAbusiveFileDownload(c.Bool("acknowledge-abuse"))
 	GD.SetSortOrder(c.String("sort"))
 	GD.SetFileFilter(c.String("filter"))
+	GD.SetPartCount(c.Int("part"))
 	cus_path, err := db.GetDLDirDb(c.String("db-path"))
 	if err == nil {
 		if c.String("path") == "." {
@@ -197,6 +198,11 @@ func main() {
 		&cli.StringFlag{
 			Name:  "filter",
 			Usage: "Filter files to download (e.g., 's01', 'e01', '.mp4')",
+		},
+		&cli.IntFlag{
+			Name:  "part",
+			Usage: "Number of parts for multipart downloads.",
+			Value: 1,
 		},
 	}
 	subCommandFlags := []cli.Flag{

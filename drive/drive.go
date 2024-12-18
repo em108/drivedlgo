@@ -43,7 +43,7 @@ type GoogleDriveClient struct {
 	channel             chan int
 	sortOrder           string
 	fileFilter          string
-
+	partCount           int
 }
 
 func (G *GoogleDriveClient) SetSortOrder(order string) {
@@ -91,6 +91,11 @@ func (G *GoogleDriveClient) SetAbusiveFileDownload(abuse bool) {
 func (G *GoogleDriveClient) SetConcurrency(count int) {
 	fmt.Printf("Using Concurrency: %d\n", count)
 	G.channel = make(chan int, count)
+}
+
+func (G *GoogleDriveClient) SetPartCount(count int) {
+	fmt.Printf("Using Part Count: %d\n", count)
+	G.partCount = count
 }
 
 func (G *GoogleDriveClient) PrepareProgressBar(size int64, dec decor.Decorator) *mpb.Bar {
@@ -426,6 +431,10 @@ func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string) {
 }
 
 func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
+	if G.partCount > 1 {
+		return G.DownloadFileMultipart(file, localPath, startByteIndex, retry)
+	}
+
 	writer, err := os.OpenFile(localPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Printf("[FileOpenError]: %v\n", err)
@@ -505,6 +514,105 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 	}
 
 	G.numFilesDownloaded += 1
+	return true
+}
+
+func (G *GoogleDriveClient) DownloadFileMultipart(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
+	partSize := file.Size / int64(G.partCount)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	success := true
+
+	for i := 0; i < G.partCount; i++ {
+		wg.Add(1)
+		start := int64(i) * partSize
+		end := start + partSize - 1
+		if i == G.partCount-1 {
+			end = file.Size - 1
+		}
+
+		go func(start, end int64) {
+			defer wg.Done()
+			partSuccess := G.DownloadFilePart(file, localPath, start, end, retry)
+			mu.Lock()
+			if !partSuccess {
+				success = false
+			}
+			mu.Unlock()
+		}(start, end)
+	}
+
+	wg.Wait()
+	return success
+}
+
+func (G *GoogleDriveClient) DownloadFilePart(file *drive.File, localPath string, start, end int64, retry int) bool {
+	writer, err := os.OpenFile(localPath, os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Printf("[FileOpenError]: %v\n", err)
+		return false
+	}
+	defer writer.Close()
+
+	writer.Seek(start, 0)
+	request := G.DriveSrv.Files.Get(file.Id).AcknowledgeAbuse(G.abuse).SupportsAllDrives(true)
+	request.Header().Add("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	response, err := request.Download()
+	if err != nil {
+		log.Printf("err while requesting download: retrying download: %s: %v\n", file.Name, err)
+		if strings.Contains(strings.ToLower(err.Error()), "rate") || response != nil && response.StatusCode >= 500 && retry <= 5 {
+			time.Sleep(5 * time.Second)
+			return G.DownloadFilePart(file, localPath, start, end, retry+1)
+		}
+		if strings.Contains(err.Error(), "416: Request range not satisfiable") {
+			log.Printf("Received 416 error. Deleting partial file and restarting download from scratch.\n")
+			writer.Close()
+			os.Remove(localPath)
+			return G.DownloadFilePart(file, localPath, start, end, retry+1)
+		}
+		log.Printf("[API-files:get]: (%s) %v\n", file.Id, err)
+		return false
+	}
+
+	contentLength := response.ContentLength
+	if contentLength < 0 || contentLength != end-start+1 {
+		log.Printf("Inconsistent file size detected. Restarting download from scratch.\n")
+		writer.Close()
+		os.Remove(localPath)
+		return G.DownloadFilePart(file, localPath, start, end, retry+1)
+	}
+
+	bar := G.GetProgressBar(fmt.Sprintf("%s.part%d", file.Name, start/partSize), end-start+1)
+	proxyReader := bar.ProxyReader(response.Body)
+	defer proxyReader.Close()
+	bytesWritten, err := io.Copy(writer, proxyReader)
+	if err != nil {
+		pos, posErr := writer.Seek(0, io.SeekCurrent)
+		if posErr != nil {
+			log.Printf("Error while getting current file offset, %v\n", err)
+			return false
+		} else if retry <= MAX_RETRIES {
+			log.Printf("err while copying stream: retrying download: %s: %v\n", file.Name, err)
+			bar.Abort(true)
+			time.Sleep(time.Duration(int64(retry)*2) * time.Second)
+			return G.DownloadFilePart(file, localPath, pos, end, retry+1)
+		} else {
+			log.Printf("Error while copying stream, %v\n", err)
+		}
+		return false
+	}
+
+	// Ensure the progress bar is completed
+	bar.SetTotal(bar.Current(), true)
+
+	totalBytesWritten := start + bytesWritten
+	if totalBytesWritten != end+1 {
+		log.Printf("Mismatch in downloaded file size. Expected: %d, Got: %d. Restarting download from scratch.\n", end+1, totalBytesWritten)
+		writer.Close()
+		os.Remove(localPath)
+		return G.DownloadFilePart(file, localPath, start, end, retry+1)
+	}
+
 	return true
 }
 
