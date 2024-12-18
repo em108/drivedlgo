@@ -68,7 +68,7 @@ func downloadCallback(c *cli.Context) error {
 		cus_path = c.String("path")
 	}
 	log.SetOutput(GD.Progress)
-	GD.Download(fileId, cus_path, c.String("output"))
+	GD.Download(fileId, cus_path, c.String("output"), c.Int("part"))
 	return nil
 }
 
@@ -197,6 +197,11 @@ func main() {
 		&cli.StringFlag{
 			Name:  "filter",
 			Usage: "Filter files to download (e.g., 's01', 'e01', '.mp4')",
+		},
+		&cli.IntFlag{
+			Name:  "part",
+			Usage: "Number of parts for multipart downloads.",
+			Value: 1,
 		},
 	}
 	subCommandFlags := []cli.Flag{

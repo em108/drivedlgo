@@ -11,6 +11,7 @@ A Minimal Google Drive Downloader Written in Go
 - Database for storing credentials and token
 - Resuming on partially downloaded files
 - Skipping Existing files
+- Multipart Downloads with Custom Number of Parts and Resume Capability
 
 # Documentation
 
@@ -46,3 +47,12 @@ drivedlgo --help
 ## Note:-
 First time run after set command will authorize the credentials and generate token. 
 
+## Multipart Downloads
+
+To enable multipart downloads, use the `--part` flag followed by the number of parts you want to split the download into. For example, to download a file in 8 parts, use the following command:
+
+`
+drivedlgo --part 8 <fileid/link>
+`
+
+The parts implementation is smart and resume capable, similar to IDM. Verification takes place as usual after a successful download.

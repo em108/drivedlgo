@@ -286,7 +286,7 @@ func (G *GoogleDriveClient) GetFileMetadata(fileId string) *drive.File {
 	return file
 }
 
-func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath string) {
+func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath string, numParts int) {
 	startTime := time.Now()
 	file := G.GetFileMetadata(nodeId)
 	if outputPath == "" {
@@ -314,7 +314,7 @@ func (G *GoogleDriveClient) Download(nodeId string, localPath string, outputPath
 		}
 		G.channel <- 1
 		wg.Add(1)
-		go G.HandleDownloadFile(file, absPath)
+		go G.HandleDownloadFile(file, absPath, numParts)
 	} else {
 		fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
 	}
@@ -337,14 +337,14 @@ func (G *GoogleDriveClient) TraverseNodes(nodeId string, localPath string) {
 		} else if G.matchesFilter(file.Name) {
 			G.channel <- 1
 			wg.Add(1)
-			go G.HandleDownloadFile(file, absPath)
+			go G.HandleDownloadFile(file, absPath, 1)
 		} else {
 			fmt.Printf("Skipping file: %s (doesn't match filter)\n", file.Name)
 		}
 	}
 }
 
-func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string) {
+func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string, numParts int) {
 	defer func() {
 		wg.Done()
 		<-G.channel
@@ -360,24 +360,24 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 		fileInfo, err := os.Stat(absPath)
 		if err != nil {
 			log.Printf("[FileStatError]: %v\n", err)
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		if fileInfo.Size() != file.Size {
 			log.Printf("Existing file size mismatch for %s. Expected: %d, Got: %d. Restarting download.\n", file.Name, file.Size, fileInfo.Size())
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		// Verify MD5 checksum for completely downloaded files
 		downloadedMD5, err := utils.GetFileMd5(absPath)
 		if err != nil {
 			log.Printf("[MD5VerificationError]: %v\n", err)
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		if downloadedMD5 != file.Md5Checksum {
 			log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		fmt.Printf("%s already downloaded and verified.\n", file.Name)
@@ -387,28 +387,28 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 		o := fmt.Sprintf("Resuming %s at offset %d\n", file.Name, bytesDled)
 		fmt.Printf("%s", color.GreenString(o))
 	}
-	success := G.DownloadFile(file, absPath, bytesDled, 1)
+	success := G.DownloadFile(file, absPath, bytesDled, 1, numParts)
 	if success {
 		// Verify MD5 checksum after successful download
 		downloadedMD5, err := utils.GetFileMd5(absPath)
 		if err != nil {
 			log.Printf("[MD5VerificationError]: %v\n", err)
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		if downloadedMD5 != file.Md5Checksum {
 			log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
-			G.restartDownload(file, absPath)
+			G.restartDownload(file, absPath, numParts)
 			return
 		}
 		fmt.Printf("%s downloaded and verified.\n", file.Name)
 	}
 }
 
-func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string) {
+func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string, numParts int) {
 	log.Printf("Restarting download for %s\n", file.Name)
 	os.Remove(absPath)
-	success := G.DownloadFile(file, absPath, 0, 1)
+	success := G.DownloadFile(file, absPath, 0, 1, numParts)
 	if success {
 		// Verify MD5 checksum after restart
 		downloadedMD5, err := utils.GetFileMd5(absPath)
@@ -425,7 +425,14 @@ func (G *GoogleDriveClient) restartDownload(file *drive.File, absPath string) {
 	}
 }
 
-func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
+func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, startByteIndex int64, retry int, numParts int) bool {
+	if numParts <= 1 {
+		return G.downloadSinglePart(file, localPath, startByteIndex, retry)
+	}
+	return G.downloadMultiPart(file, localPath, startByteIndex, retry, numParts)
+}
+
+func (G *GoogleDriveClient) downloadSinglePart(file *drive.File, localPath string, startByteIndex int64, retry int) bool {
 	writer, err := os.OpenFile(localPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Printf("[FileOpenError]: %v\n", err)
@@ -441,13 +448,13 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 		log.Printf("err while requesting download: retrying download: %s: %v\n", file.Name, err)
 		if strings.Contains(strings.ToLower(err.Error()), "rate") || response != nil && response.StatusCode >= 500 && retry <= 5 {
 			time.Sleep(5 * time.Second)
-			return G.DownloadFile(file, localPath, startByteIndex, retry+1)
+			return G.downloadSinglePart(file, localPath, startByteIndex, retry+1)
 		}
 		if strings.Contains(err.Error(), "416: Request range not satisfiable") {
 			log.Printf("Received 416 error. Deleting partial file and restarting download from scratch.\n")
 			writer.Close()
 			os.Remove(localPath)
-			return G.DownloadFile(file, localPath, 0, retry+1)
+			return G.downloadSinglePart(file, localPath, 0, retry+1)
 		}
 		log.Printf("[API-files:get]: (%s) %v\n", file.Id, err)
 		return false
@@ -458,7 +465,7 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 		log.Printf("Inconsistent file size detected. Restarting download from scratch.\n")
 		writer.Close()
 		os.Remove(localPath)
-		return G.DownloadFile(file, localPath, 0, retry+1)
+		return G.downloadSinglePart(file, localPath, 0, retry+1)
 	}
 
 	bar := G.GetProgressBar(file.Name, file.Size-startByteIndex)
@@ -474,7 +481,7 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 			log.Printf("err while copying stream: retrying download: %s: %v\n", file.Name, err)
 			bar.Abort(true)
 			time.Sleep(time.Duration(int64(retry)*2) * time.Second)
-			return G.DownloadFile(file, localPath, pos, retry+1)
+			return G.downloadSinglePart(file, localPath, pos, retry+1)
 		} else {
 			log.Printf("Error while copying stream, %v\n", err)
 		}
@@ -489,7 +496,7 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 		log.Printf("Mismatch in downloaded file size. Expected: %d, Got: %d. Restarting download from scratch.\n", file.Size, totalBytesWritten)
 		writer.Close()
 		os.Remove(localPath)
-		return G.DownloadFile(file, localPath, 0, retry+1)
+		return G.downloadSinglePart(file, localPath, 0, retry+1)
 	}
 
 	// Silent MD5 verification
@@ -501,7 +508,81 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 	if downloadedMD5 != file.Md5Checksum {
 		log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
 		os.Remove(localPath)
-		return G.DownloadFile(file, localPath, 0, retry+1)
+		return G.downloadSinglePart(file, localPath, 0, retry+1)
+	}
+
+	G.numFilesDownloaded += 1
+	return true
+}
+
+func (G *GoogleDriveClient) downloadMultiPart(file *drive.File, localPath string, startByteIndex int64, retry int, numParts int) bool {
+	partSize := file.Size / int64(numParts)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	success := true
+
+	for i := 0; i < numParts; i++ {
+		wg.Add(1)
+		go func(partNum int) {
+			defer wg.Done()
+			partStart := int64(partNum) * partSize
+			partEnd := partStart + partSize - 1
+			if partNum == numParts-1 {
+				partEnd = file.Size - 1
+			}
+
+			partPath := fmt.Sprintf("%s.part%d", localPath, partNum)
+			partSuccess := G.downloadSinglePart(file, partPath, partStart, retry)
+			if !partSuccess {
+				mu.Lock()
+				success = false
+				mu.Unlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !success {
+		return false
+	}
+
+	// Merge parts
+	writer, err := os.OpenFile(localPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Printf("[FileOpenError]: %v\n", err)
+		return false
+	}
+	defer writer.Close()
+
+	for i := 0; i < numParts; i++ {
+		partPath := fmt.Sprintf("%s.part%d", localPath, i)
+		partFile, err := os.Open(partPath)
+		if err != nil {
+			log.Printf("[FileOpenError]: %v\n", err)
+			return false
+		}
+		defer partFile.Close()
+
+		_, err = io.Copy(writer, partFile)
+		if err != nil {
+			log.Printf("[FileCopyError]: %v\n", err)
+			return false
+		}
+
+		os.Remove(partPath)
+	}
+
+	// Silent MD5 verification
+	downloadedMD5, err := utils.GetFileMd5(localPath)
+	if err != nil {
+		log.Printf("[MD5VerificationError]: %v\n", err)
+		return false
+	}
+	if downloadedMD5 != file.Md5Checksum {
+		log.Printf("MD5 checksum mismatch for %s. Expected: %s, Got: %s. Restarting download.\n", file.Name, file.Md5Checksum, downloadedMD5)
+		os.Remove(localPath)
+		return G.downloadMultiPart(file, localPath, 0, retry+1, numParts)
 	}
 
 	G.numFilesDownloaded += 1
