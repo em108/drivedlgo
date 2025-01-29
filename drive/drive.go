@@ -410,6 +410,20 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 				os.Remove(absPath)
 			}
 		}
+		
+		// Clean up empty files if download failed
+		if !success {
+			if info, err := os.Stat(absPath); err == nil && info.Size() == 0 {
+				os.Remove(absPath)
+			}
+		}
+		
+		// Clean up empty files if download failed
+		if !success {
+			if info, err := os.Stat(absPath); err == nil && info.Size() == 0 {
+				os.Remove(absPath)
+			}
+		}
 	}
 }
 
@@ -446,16 +460,26 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 	request.Header().Add("Range", fmt.Sprintf("bytes=%d-%d", startByteIndex, file.Size))
 	response, err := request.Download()
 	if err != nil {
-		log.Printf("err while requesting download: retrying download: %s: %v\n", file.Name, err)
-		if strings.Contains(strings.ToLower(err.Error()), "rate") || response != nil && response.StatusCode >= 500 && retry <= 5 {
-			time.Sleep(5 * time.Second)
+		log.Printf("Error during download request: %s (%v)\n", file.Name, err)
+		
+		// Handle network errors with exponential backoff
+		if strings.Contains(err.Error(), "dial tcp") || strings.Contains(err.Error(), "lookup") || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "timeout") {
+			backoff := time.Duration(retry*retry) * time.Second
+			log.Printf("Network error detected, retrying in %v (attempt %d)\n", backoff, retry)
+			time.Sleep(backoff)
 			return G.DownloadFile(file, localPath, startByteIndex, retry+1)
 		}
+		
+		// Handle rate limits and server errors with incremental backoff
+		if strings.Contains(strings.ToLower(err.Error()), "rate") || (response != nil && response.StatusCode >= 500) && retry <= MAX_RETRIES {
+			sleepDuration := time.Duration(retry) * 2 * time.Second
+			time.Sleep(sleepDuration)
+			return G.DownloadFile(file, localPath, startByteIndex, retry+1)
+		}
+		
+		// Handle 416 range errors
 		if strings.Contains(err.Error(), "416: Request range not satisfiable") {
 			log.Printf("Received 416 error. Deleting partial file and restarting download from scratch.\n")
-			writer.Close()
-			os.Remove(localPath)
-			return G.DownloadFile(file, localPath, 0, retry+1)
 		}
 		log.Printf("[API-files:get]: (%s) %v\n", file.Id, err)
 		return false
@@ -496,6 +520,13 @@ func (G *GoogleDriveClient) DownloadFile(file *drive.File, localPath string, sta
 	if totalBytesWritten != file.Size {
 		log.Printf("Mismatch in downloaded file size. Expected: %d, Got: %d. Restarting download from scratch.\n", file.Size, totalBytesWritten)
 		writer.Close()
+		
+		// Clean up empty files created during failed attempts
+		if info, err := os.Stat(localPath); err == nil && info.Size() == 0 {
+			os.Remove(localPath)
+			log.Printf("Removed empty file from failed download: %s\n", localPath)
+		}
+		
 		os.Remove(localPath)
 		return G.DownloadFile(file, localPath, 0, retry+1)
 	}
