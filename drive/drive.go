@@ -402,21 +402,6 @@ func (G *GoogleDriveClient) HandleDownloadFile(file *drive.File, absPath string)
 			return
 		}
 		fmt.Printf("%s downloaded and verified.\n", file.Name)
-
-
-		// Clean up empty files if download failed
-		if !success {
-			if info, err := os.Stat(absPath); err == nil && info.Size() == 0 {
-				os.Remove(absPath)
-			}
-		}
-		
-		// Clean up empty files if download failed
-		if !success {
-			if info, err := os.Stat(absPath); err == nil && info.Size() == 0 {
-				os.Remove(absPath)
-			}
-		}
 		
 		// Clean up empty files if download failed
 		if !success {
